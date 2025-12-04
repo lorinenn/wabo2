@@ -52,7 +52,7 @@ async function logToSheet({ phone, message, reply }) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: "Sheet1!A:D", // الأعمدة: الوقت - الرقم - الرسالة - الرد
+      range: "bot!A:D", // الأعمدة: الوقت - الرقم - الرسالة - الرد
       valueInputOption: "USER_ENTERED",
       resource: {
         values: [[timestamp, phone, message, reply]],

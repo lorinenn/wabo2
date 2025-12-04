@@ -1,22 +1,69 @@
 // index.js
 
 const express = require("express");
+const { google } = require("googleapis");
 const app = express();
 app.use(express.json());
 
-// نقرأ بيانات واتساب من الـ Environment Variables (ستضعها في Render)
+// متغيرات واتساب من الـ Environment Variables في Render
 const TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 
+// متغير Google Service Account (JSON كله من Render)
+const GOOGLE_SERVICE_ACCOUNT = process.env.GOOGLE_SERVICE_ACCOUNT;
+
+// حط هنا ID تبع Google Sheet
+// من رابط الشيت: الجزء اللي بعد /d/ وقبل /edit
+const SPREADSHEET_ID = "PASTE_SPREADSHEET_ID_HERE";
+
 // للتأكد في الـ Console
 console.log("PHONE_NUMBER_ID:", PHONE_NUMBER_ID);
 console.log("VERIFY_TOKEN loaded:", !!VERIFY_TOKEN);
+console.log("HAS GOOGLE_SERVICE_ACCOUNT:", !!GOOGLE_SERVICE_ACCOUNT);
 
 // صفحة بسيطة للتأكد أن السيرفر شغال
 app.get("/", (req, res) => {
   res.send("WhatsApp Bot is running! Webhook endpoint: /webhook");
 });
+
+// دالة تسجيل المحادثات في Google Sheet
+async function logToSheet({ phone, message, reply }) {
+  try {
+    if (!GOOGLE_SERVICE_ACCOUNT || !SPREADSHEET_ID) {
+      console.log("Skipping sheet log: missing GOOGLE_SERVICE_ACCOUNT or SPREADSHEET_ID");
+      return;
+    }
+
+    const credentials = JSON.parse(GOOGLE_SERVICE_ACCOUNT);
+
+    const client = new google.auth.JWT(
+      credentials.client_email,
+      null,
+      credentials.private_key,
+      ["https://www.googleapis.com/auth/spreadsheets"]
+    );
+
+    const sheets = google.sheets({ version: "v4", auth: client });
+
+    const timestamp = new Date().toLocaleString("en-US", {
+      timeZone: "Asia/Riyadh",
+    });
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "Sheet1!A:D", // الأعمدة: الوقت - الرقم - الرسالة - الرد
+      valueInputOption: "USER_ENTERED",
+      resource: {
+        values: [[timestamp, phone, message, reply]],
+      },
+    });
+
+    console.log("✔ تمت إضافة السطر في Google Sheet");
+  } catch (err) {
+    console.error("❌ خطأ أثناء الكتابة في Google Sheet:", err);
+  }
+}
 
 // دالة إرسال رسالة واتساب
 async function sendMessage(to, body) {
@@ -27,13 +74,13 @@ async function sendMessage(to, body) {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${TOKEN}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         messaging_product: "whatsapp",
         to,
-        text: { body }
-      })
+        text: { body },
+      }),
     });
 
     const data = await response.json();
@@ -73,7 +120,7 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    const from = message.from;                // رقم العميل
+    const from = message.from; // رقم العميل
     const text = message.text.body.trim().toLowerCase(); // نص الرسالة
 
     console.log("Message from:", from, "text:", text);
@@ -96,7 +143,8 @@ app.post("/webhook", async (req, res) => {
         "اسم المنتج + الكمية + المدينة ✅\n" +
         "مثال: منتج A، عدد 2، الرياض";
     } else if (text.includes("دعم")) {
-      reply = "👨‍💻 تم تحويل طلبك إلى الدعم الفني، وسنخدمك في أقرب وقت ممكن.";
+      reply =
+        "👨‍💻 تم تحويل طلبك إلى الدعم الفني، وسنخدمك في أقرب وقت ممكن.";
     } else {
       reply =
         "مرحباً 👋 شكرًا لتواصلك مع متجرنا.\n" +
@@ -107,7 +155,12 @@ app.post("/webhook", async (req, res) => {
         "4️⃣ دعم – للتواصل مع الدعم الفني";
     }
 
-    await sendMessage(from, reply);
+    // نرسل الرد + نسجل في الشيت بنفس الوقت
+    await Promise.all([
+      sendMessage(from, reply),
+      logToSheet({ phone: from, message: text, reply }),
+    ]);
+
     res.sendStatus(200);
   } catch (err) {
     console.error("Error in webhook handler:", err);

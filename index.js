@@ -2,6 +2,7 @@
 
 const express = require("express");
 const { google } = require("googleapis");
+
 const app = express();
 app.use(express.json());
 
@@ -10,24 +11,50 @@ const TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 
-// متغير Google Service Account (JSON كله من Render)
+// Google Sheets
 const GOOGLE_SERVICE_ACCOUNT = process.env.GOOGLE_SERVICE_ACCOUNT;
+// IMPORTANT: استبدل هذا بالـ ID الحقيقي للشيت من الرابط
+const SPREADSHEET_ID = "PASTE_SPREADSHEET_ID_HERE";
 
-// حط هنا ID تبع Google Sheet
-// من رابط الشيت: الجزء اللي بعد /d/ وقبل /edit
-const SPREADSHEET_ID = "1fiDvnzQMLev9voqf894o7T2LTsEyAyctGY7LDAdojbk";
+// Discord
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
-// للتأكد في الـ Console
 console.log("PHONE_NUMBER_ID:", PHONE_NUMBER_ID);
 console.log("VERIFY_TOKEN loaded:", !!VERIFY_TOKEN);
 console.log("HAS GOOGLE_SERVICE_ACCOUNT:", !!GOOGLE_SERVICE_ACCOUNT);
+console.log("HAS DISCORD_WEBHOOK_URL:", !!DISCORD_WEBHOOK_URL);
 
 // صفحة بسيطة للتأكد أن السيرفر شغال
 app.get("/", (req, res) => {
   res.send("WhatsApp Bot is running! Webhook endpoint: /webhook");
 });
 
-// دالة تسجيل المحادثات في Google Sheet
+// دالة إرسال رسالة واتساب
+async function sendMessage(to, body) {
+  try {
+    const url = `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        text: { body },
+      }),
+    });
+
+    const data = await response.json();
+    console.log("WhatsApp API response:", data);
+  } catch (err) {
+    console.error("Error sending message:", err);
+  }
+}
+
+// تسجيل المحادثة في Google Sheet
 async function logToSheet({ phone, message, reply }) {
   try {
     if (!GOOGLE_SERVICE_ACCOUNT || !SPREADSHEET_ID) {
@@ -52,7 +79,7 @@ async function logToSheet({ phone, message, reply }) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: "bot!A:D", // الأعمدة: الوقت - الرقم - الرسالة - الرد
+      range: "bot!A:D", // تأكد أن اسم الورقة في الشيت هو bot
       valueInputOption: "USER_ENTERED",
       resource: {
         values: [[timestamp, phone, message, reply]],
@@ -65,32 +92,27 @@ async function logToSheet({ phone, message, reply }) {
   }
 }
 
-// دالة إرسال رسالة واتساب
-async function sendMessage(to, body) {
+// إرسال تنبيه إلى Discord إذا الكلمة "دعم" موجودة
+async function sendToDiscord(content) {
   try {
-    const url = `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`;
+    if (!DISCORD_WEBHOOK_URL) {
+      console.log("DISCORD_WEBHOOK_URL not set, skipping Discord alert");
+      return;
+    }
 
-    const response = await fetch(url, {
+    await fetch(DISCORD_WEBHOOK_URL, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to,
-        text: { body },
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
     });
 
-    const data = await response.json();
-    console.log("WhatsApp API response:", data);
+    console.log("✔ تم إرسال تنبيه إلى Discord");
   } catch (err) {
-    console.error("Error sending message:", err);
+    console.error("❌ خطأ أثناء الإرسال إلى Discord:", err);
   }
 }
 
-// Webhook التحقق من فيسبوك (GET) — يستخدم عند ضغط Verify and save
+// Webhook التحقق من فيسبوك (GET)
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -121,44 +143,118 @@ app.post("/webhook", async (req, res) => {
     }
 
     const from = message.from; // رقم العميل
-    const text = message.text.body.trim().toLowerCase(); // نص الرسالة
+    const textOriginal = message.text.body; // النص كما كتبه العميل
+    const text = textOriginal.trim().toLowerCase(); // نسخة صغيرة للتحليل
 
     console.log("Message from:", from, "text:", text);
 
-    let reply;
+    // ==========================
+    // 🔍 الكلمات المفتاحية
+    // ==========================
+    const keywords_products = ["منتج", "منتجات", "product", "prod"];
+    const keywords_shipping = ["شحن", "توصيل", "ship", "delivery"];
+    const keywords_orders = ["طلب", "طلبات", "حساب", "order", "account"];
+    const keywords_return = ["ارجاع", "استرجاع", "استبدال", "رجع", "return"];
+    const keywords_support = ["دعم", "مساعدة", "help", "support"];
 
-    if (text.includes("سعر")) {
-      reply =
-        "📌 قائمة الأسعار:\n" +
-        "منتج A = 100 ريال\n" +
-        "منتج B = 150 ريال\n" +
-        "للطلب اكتب: طلب";
-    } else if (text.includes("توصيل")) {
-      reply =
-        "🚚 التوصيل متوفر لجميع مدن المملكة خلال 2-5 أيام عمل.\n" +
-        "رسوم التوصيل بين 20 و 30 ريال حسب المدينة.";
-    } else if (text.includes("طلب")) {
-      reply =
-        "لطلب جديد ارسل المعلومات التالية:\n" +
-        "اسم المنتج + الكمية + المدينة ✅\n" +
-        "مثال: منتج A، عدد 2، الرياض";
-    } else if (text.includes("دعم")) {
-      reply =
-        "👨‍💻 تم تحويل طلبك إلى الدعم الفني، وسنخدمك في أقرب وقت ممكن.";
-    } else {
-      reply =
-        "مرحباً 👋 شكرًا لتواصلك مع متجرنا.\n" +
-        "اكتب إحدى الكلمات التالية:\n" +
-        "1️⃣ سعر – لعرض قائمة الأسعار\n" +
-        "2️⃣ توصيل – لمعلومات الشحن\n" +
-        "3️⃣ طلب – لبدء طلب جديد\n" +
-        "4️⃣ دعم – للتواصل مع الدعم الفني";
+    let reply = "";
+
+    // ==========================
+    // 🚨 تنبيه Discord إذا فيها كلمة "دعم"
+    // ==========================
+    if (text.includes("دعم")) {
+      await sendToDiscord(
+        `🚨 تنبيه دعم جديد:\nالرقم: ${from}\nالرسالة: ${textOriginal}`
+      );
     }
 
-    // نرسل الرد + نسجل في الشيت بنفس الوقت
+    // ==========================
+    // 📌 1 — المنتجات
+    // ==========================
+    if (keywords_products.some((word) => text.includes(word))) {
+      reply =
+`المنتجات 🛍️✨
+
+في Glamberry نهتم بكل تفصيلة في منتجاتنا لنمنحك راحة وأناقة لا تُقارن.
+اختيارنا للخامات، جودة التصنيع، وتصاميمنا العصرية مصممة لتناسب أسلوبك وتمنحك ثقة أكبر كل يوم 💗✨
+
+اكتشفي تشكيلتنا الكاملة وتصفّحي أجمل المنتجات عبر متجرنا:
+https://salla.sa/glamberry
+
+استمتعي بتجربة تسوّق ولا أروع 🌸🔥`;
+    }
+
+    // ==========================
+    // 📌 2 — الشحن والتوصيل
+    // ==========================
+    else if (keywords_shipping.some((word) => text.includes(word))) {
+      reply =
+`الشحن والتوصيل 🚚✨
+
+يتم تجهيز طلباتكم من طرفنا بأسرع وقت ممكن، ونحرص إنها تُسلّم لشركات الشحن بسرعة خلال نفس اليوم أو اليوم التالي.
+بعد الشحن، تعتمد مدة التوصيل على شركة الشحن والمدينة، وغالبًا تستغرق 2–5 أيام عمل.
+سنزوّدك برقم التتبع فور شحن الطلب 💗.`;
+    }
+
+    // ==========================
+    // 📌 3 — الطلبات والحساب
+    // ==========================
+    else if (keywords_orders.some((word) => text.includes(word))) {
+      reply =
+`الطلبات والحساب 🛍️✨
+
+لمعرفة تفاصيل طلبك أو متابعة حالته، كل المعلومات موجودة داخل خانة الطلبات في حسابك على سلة.
+كما تصلك أيضًا رسالة تأكيد وتحديثات الطلب عبر البريد الإلكتروني المسجّل لدينا.
+لو احتجت أي مساعدة إضافية، نحن دائمًا بالخدمة 💗.`;
+    }
+
+    // ==========================
+    // 📌 4 — الاسترجاع والاستبدال
+    // ==========================
+    else if (keywords_return.some((word) => text.includes(word))) {
+      reply =
+`سياسة الاسترجاع والاستبدال 💗
+
+يسعدنا خدمتك!
+الاسترجاع والاستبدال خلال 3 أيام من الاستلام، بشرط أن يكون المنتج غير مستخدم وبحالته الأصلية.
+ولأسباب صحية، لا نقبل استرجاع حمالات الصدر أو أي منتج مفتوح.
+إذا وصل طلبك بشكل خاطئ أو تالف، نبدّله لك مجاناً والشحن علينا.
+إرجاع المبلغ يتم لنفس وسيلة الدفع خلال 2–7 أيام عمل.
+
+لأي استفسار، نحن بالخدمة دائماً 💗.`;
+    }
+
+    // ==========================
+    // 📌 5 — خدمة العملاء
+    // ==========================
+    else if (keywords_support.some((word) => text.includes(word))) {
+      reply =
+`خدمة العملاء 🤝✨
+
+للحصول على مساعدة من أحد موظفينا، يرجى إرسال كلمة "دعم"، وسنتواصل معك في أقرب وقت ممكن وبكل سرور ❤️.`;
+    }
+
+    // ==========================
+    // ✨ الرسالة الترحيبية الافتراضية
+    // ==========================
+    else {
+      reply =
+`أهلاً وسهلاً 🌸
+شكراً لتواصلك مع Glamberry! 💗
+
+لخدمتك بشكل أفضل، يرجى إرسال أحد الخيارات التالية:
+
+1- المنتجات
+2- الشحن والتوصيل
+3- الطلبات والحساب
+4- الإرجاع والاستبدال
+5- خدمة العملاء`;
+    }
+
+    // نرسل الرد + نسجل في الشيت (لو متوفر)
     await Promise.all([
       sendMessage(from, reply),
-      logToSheet({ phone: from, message: text, reply }),
+      logToSheet({ phone: from, message: textOriginal, reply }),
     ]);
 
     res.sendStatus(200);

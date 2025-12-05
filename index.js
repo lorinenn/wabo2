@@ -14,7 +14,7 @@ const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 // Google Sheets
 const GOOGLE_SERVICE_ACCOUNT = process.env.GOOGLE_SERVICE_ACCOUNT;
 // IMPORTANT: استبدل هذا بالـ ID الحقيقي للشيت من الرابط
-const SPREADSHEET_ID = "1fiDvnzQMLev9voqf894o7T2LTsEyAyctGY7LDAdojbk";
+const SPREADSHEET_ID = "PASTE_SPREADSHEET_ID_HERE";
 
 // Discord
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
@@ -79,7 +79,7 @@ async function logToSheet({ phone, message, reply }) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: "bot!A:D", // تأكد أن اسم الورقة في الشيت هو bot
+      range: "bot!A:D", // تأكد أن اسم الورقة في الشيت هو bot أو عدّلها هنا
       valueInputOption: "USER_ENTERED",
       resource: {
         values: [[timestamp, phone, message, reply]],
@@ -92,7 +92,7 @@ async function logToSheet({ phone, message, reply }) {
   }
 }
 
-// إرسال تنبيه إلى Discord إذا الكلمة "دعم" موجودة
+// إرسال تنبيه إلى Discord
 async function sendToDiscord(content) {
   try {
     if (!DISCORD_WEBHOOK_URL) {
@@ -155,7 +155,15 @@ app.post("/webhook", async (req, res) => {
     const keywords_shipping = ["شحن", "توصيل", "ship", "delivery"];
     const keywords_orders = ["طلب", "طلبات", "حساب", "order", "account"];
     const keywords_return = ["ارجاع", "استرجاع", "استبدال", "رجع", "return"];
-    const keywords_support = ["دعم", "مساعدة", "help", "support"];
+    const keywords_support = [
+      "دعم",
+      "مساعدة",
+      "help",
+      "support",
+      "خدمة",
+      "خدمة العملاء",
+      "العملاء",
+    ];
 
     let reply = "";
 

@@ -14,7 +14,7 @@ const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 // Google Sheets
 const GOOGLE_SERVICE_ACCOUNT = process.env.GOOGLE_SERVICE_ACCOUNT;
 // IMPORTANT: استبدل هذا بالـ ID الحقيقي للشيت من الرابط
-const SPREADSHEET_ID = "PASTE_SPREADSHEET_ID_HERE";
+const SPREADSHEET_ID = "1fiDvnzQMLev9voqf894o7T2LTsEyAyctGY7LDAdojbk";
 
 // Discord
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;

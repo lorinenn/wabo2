@@ -14,7 +14,7 @@ const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 // Google Sheets
 const GOOGLE_SERVICE_ACCOUNT = process.env.GOOGLE_SERVICE_ACCOUNT;
 // IMPORTANT: استبدل هذا بالـ ID الحقيقي للشيت من الرابط
-const SPREADSHEET_ID = "1fiDvnzQMLev9voqf894o7T2LTsEyAyctGY7LDAdojbk";
+const SPREADSHEET_ID = "PASTE_SPREADSHEET_ID_HERE";
 
 // Discord
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
@@ -79,7 +79,7 @@ async function logToSheet({ phone, message, reply }) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: "bot!A:D", // تأكد أن اسم الورقة في الشيت هو bot أو عدّلها هنا
+      range: "bot!A:D",
       valueInputOption: "USER_ENTERED",
       resource: {
         values: [[timestamp, phone, message, reply]],
@@ -137,25 +137,25 @@ app.post("/webhook", async (req, res) => {
     const value = changes?.value;
     const message = value?.messages?.[0];
 
-    // إذا ما فيه رسالة نصية، ننهي
     if (!message || message.type !== "text") {
       return res.sendStatus(200);
     }
 
-    const from = message.from; // رقم العميل
-    const textOriginal = message.text.body; // النص كما كتبه العميل
-    const text = textOriginal.trim().toLowerCase(); // نسخة صغيرة للتحليل
+    const from = message.from;
+    const textOriginal = message.text.body;
+    const text = textOriginal.trim().toLowerCase();
 
     console.log("Message from:", from, "text:", text);
 
     // ==========================
-    // 🔍 الكلمات المفتاحية
+    // 🔍 الكلمات المفتاحية + الأرقام
     // ==========================
-    const keywords_products = ["منتج", "منتجات", "product", "prod"];
-    const keywords_shipping = ["شحن", "توصيل", "ship", "delivery"];
-    const keywords_orders = ["طلب", "طلبات", "حساب", "order", "account"];
-    const keywords_return = ["ارجاع", "استرجاع", "استبدال", "رجع", "return"];
+    const keywords_products = ["1", "منتج", "منتجات", "product", "prod"];
+    const keywords_shipping = ["2", "شحن", "توصيل", "ship", "delivery"];
+    const keywords_orders = ["3", "طلب", "طلبات", "حساب", "order", "account"];
+    const keywords_return = ["4", "ارجاع", "استرجاع", "استبدال", "رجع", "return"];
     const keywords_support = [
+      "5",
       "دعم",
       "مساعدة",
       "help",
@@ -168,7 +168,7 @@ app.post("/webhook", async (req, res) => {
     let reply = "";
 
     // ==========================
-    // 🚨 تنبيه Discord إذا فيها كلمة "دعم"
+    // 🚨 إرسال تنبيه Discord إذا فيها كلمة "دعم"
     // ==========================
     if (text.includes("دعم")) {
       await sendToDiscord(
@@ -259,7 +259,7 @@ https://salla.sa/glamberry
 5- خدمة العملاء`;
     }
 
-    // نرسل الرد + نسجل في الشيت (لو متوفر)
+    // نرسل الرد ونخزن في الشيت
     await Promise.all([
       sendMessage(from, reply),
       logToSheet({ phone: from, message: textOriginal, reply }),
@@ -267,7 +267,7 @@ https://salla.sa/glamberry
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("Error in webhook handler:", err);
+    console.error("❌ Error in webhook handler:", err);
     res.sendStatus(200);
   }
 });
